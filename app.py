@@ -35,6 +35,8 @@ async def handle_event(event):
     source_type = event['sourcetype']
 
     # match/case not supported until Python 3.10
+    dport = None
+    payload = None
     if source_type == 'snmp':
         payload = json.loads(event['_raw'])['data']
         dport = 162
@@ -42,10 +44,9 @@ async def handle_event(event):
         payload = event['_raw']
         dport = 514
 
-    msg = IP(dst=destination, src=original_host) / UDP(dport=dport) / Raw(payload)
-
-    #print(msg.show())
-    send(msg)
+    if dport and payload:
+        msg = IP(dst=destination, src=original_host) / UDP(dport=dport) / Raw(payload)
+        send(msg)
 
 
 async def forwarder(request: Request):
