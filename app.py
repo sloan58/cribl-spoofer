@@ -14,7 +14,7 @@ from starlette.routing import Route
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         auth_header = request.headers.get('Authorization')
-        if auth_header is None or auth_header != f'Bearer {TOKEN}':
+        if auth_header is None or auth_header != f'Bearer {API_TOKEN}':
             return JSONResponse('Unauthorized', status_code=401)
         response = await call_next(request)
         return response
@@ -33,27 +33,29 @@ async def handle_event(event):
     original_host = event['host']
     destination = event['vip']
     source_type = event['sourcetype']
+    dport = event['destinationPort']
 
     # match/case not supported until Python 3.10
-    dport = None
     payload = None
     if source_type == 'snmp':
         payload = json.loads(event['_raw'])['data']
-        dport = 162
     if source_type == 'syslog':
         payload = event['_raw']
-        dport = 514
 
-    if dport and payload:
-        msg = IP(dst=destination, src=original_host) / UDP(dport=dport) / Raw(payload)
-        send(msg)
+    if payload is None:
+        return
+
+    msg = IP(dst=destination, src=original_host) / UDP(dport=dport) / Raw(payload)
+    send(msg, verbose=SCAPY_VERBOSE)
 
 
 async def forwarder(request: Request):
-    events = await request.json()
-
-    for event in events:
-        await handle_event(event)
+    try:
+        events = await request.json()
+        for event in events:
+            await handle_event(event)
+    except Exception as e:
+        print(f'Exception: {str(e)}')
 
     return JSONResponse({'status': 'ok'})
 
@@ -64,8 +66,10 @@ middleware = [
 ]
 
 config = Config('.env')
-TOKEN = config('TOKEN', cast=str, default='')
+API_TOKEN = config('API_TOKEN', cast=str, default='')
+APP_DEBUG = config('APP_DEBUG', cast=bool, default=False)
+SCAPY_VERBOSE = config('SCAPY_VERBOSE', cast=bool, default=False)
 
-app = Starlette(debug=True, routes=[
+app = Starlette(debug=APP_DEBUG, routes=[
     Route('/', forwarder, methods=["POST"]),
 ], middleware=middleware)
